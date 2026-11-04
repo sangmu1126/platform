@@ -145,11 +145,12 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | Prometheus | 72MiB (43MiB) | 13m / 19m | 50m · 128Mi / 1 · 512Mi |
 | 조회 API | 49MiB (42MiB) | 3m / 7m | 25m · 64Mi / 500m · 192Mi |
 | 창 수신 | 44MiB (41MiB) | 29m / 38m (평상 3m) | 10m · 64Mi / 250m · 192Mi |
-| PgBouncer exporter (출발지 · 목적지 클러스터) | 23MiB (8MiB) | 1m / 5m | 10m · 32Mi / 100m · 64Mi |
+| PgBouncer exporter (출발지 · 목적지 클러스터) | 11.2MiB (8.7MiB) | 1.1m / 3.4m (평상 1.4m / 4.7m) | 10m · 32Mi / 100m · 64Mi |
 
 - **최대 메모리는 working set이고, 괄호는 프로세스가 실제로 쥔 메모리(cgroup anon)다.** Collector의 working set에는 디스크 큐 파일 캐시가 150MiB 남짓 섞인다. 커널은 OOM 전에 이 캐시를 회수하므로 limit 256Mi는 anon 72MiB 기준으로 충분하다.
 - 창 수신의 CPU는 창 수에 비례한다. 데모(10초에 1건)에서는 평상값 3m 근처다.
-- PgBouncer exporter는 앱 트래픽과 상관없이 15초 수집 주기와 pool 수에 따라 움직인다. 평상 · 부하 두 구간과 다른 실행(#199 head)까지 CPU 최대 6m, anon 8MiB를 넘지 않았다.
+- PgBouncer exporter 행의 출처는 2026-11-05 이 저장소의 `stats.py`로 잰 실행(평상 60초 · 부하 180초 모두 같은 컨테이너로 끝까지 측정, 종료 코드 0)이다. 다른 행은 2026-11-04 측정이다. exporter는 앱 트래픽과 상관없이 15초 수집 주기와 pool 수에 따라 움직인다. working set은 실행마다 파일 캐시에 따라 달랐지만(4회 측정 8.9~23.1MiB) anon은 7.5~8.7MiB였다.
+- **CPU 계산:** 평균은 같은 컨테이너 ID의 누적 CPU 시간 차이를 구간 길이로 나눈 값이고, 최대는 5초 간격마다 같은 방식으로 계산한 값 중 가장 큰 값이다. `stats.py`는 대상을 네임스페이스 · Deployment · 컨테이너 이름으로 고르고, 표본 누락 · 측정 중 교체 · 대상 중복이면 수치 대신 "확정 불가"와 종료 코드 1을 낸다. 확정 불가 구간은 이 표에 쓰지 않는다.
 - `BRAVO_K8S_CAPACITY=1 testing/k8s.sh`로 다시 잰다. 시계열 종류 수가 적은 부하였고 Docker Desktop VM이라, 실제 환경에서 다시 잰다.
 
 ### 플랫폼 노드 몫
