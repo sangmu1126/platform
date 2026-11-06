@@ -34,11 +34,17 @@
     "unauthorized_publisher_denied": true,
     "plan_state_unchanged": true,
     "context_only_synthetic_proof": true,
-    "modules": {
-      "key_records.py": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379",
-      "authority_records.py": "c7ba96f9d52d8a065bd4e75a2a7ec1a9e53075f9e1122a421690d0f8e5dcb992"
-    },
-    "wheel_sha256": "4c3004c7baa622bf4020fd88a03eaea92b3444d7b2a2ca4d3c3de82e7b6d642e"
+    "wheel_sha256": "4c3004c7baa622bf4020fd88a03eaea92b3444d7b2a2ca4d3c3de82e7b6d642e",
+    "module_hashes": [
+      {
+        "module_name": "authority_records.py",
+        "sha256": "c7ba96f9d52d8a065bd4e75a2a7ec1a9e53075f9e1122a421690d0f8e5dcb992"
+      },
+      {
+        "module_name": "key_records.py",
+        "sha256": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379"
+      }
+    ]
   },
   "actual_archived_t14_negative_test": {
     "backends": 2,
