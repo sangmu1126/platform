@@ -1,0 +1,52 @@
+{
+  "scope": "isolated actual stores and Linux runtime; synthetic registered identities, keys and probes",
+  "new_tests": 108,
+  "full_control_gate_tests": 661,
+  "databases": [
+    "SQLite",
+    "PostgreSQL 17.11"
+  ],
+  "process_death_recovery_cases": 4,
+  "consumer_http_cases": 16,
+  "mutations": [
+    {
+      "condition": "collection before trust start",
+      "failed_targeted_tests": 4
+    },
+    {
+      "condition": "expiry after insert",
+      "failed_targeted_tests": 2
+    },
+    {
+      "condition": "stored publisher binding",
+      "failed_targeted_tests": 2
+    }
+  ],
+  "verified_mutant_imports": true,
+  "runtime": {
+    "runtime_wheel": "PASS",
+    "platform": "linux",
+    "python": "3.12.14",
+    "uid": 65532,
+    "network": "none",
+    "sqlite_enroll_publish_read_revoke": true,
+    "current_verification_on_new_adapter_instance": true,
+    "unauthorized_publisher_denied": true,
+    "plan_state_unchanged": true,
+    "context_only_synthetic_proof": true,
+    "modules": {
+      "key_records.py": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379",
+      "authority_records.py": "c7ba96f9d52d8a065bd4e75a2a7ec1a9e53075f9e1122a421690d0f8e5dcb992"
+    },
+    "wheel_sha256": "4c3004c7baa622bf4020fd88a03eaea92b3444d7b2a2ca4d3c3de82e7b6d642e"
+  },
+  "actual_archived_t14_negative_test": {
+    "backends": 2,
+    "rejected_publications": 4,
+    "envelopes_persisted": 0,
+    "original_bytes_unchanged": true
+  },
+  "production_database_writes": 0,
+  "operational_producer_enrolled": false,
+  "operational_acceptance": false
+}
