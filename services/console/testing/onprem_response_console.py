@@ -103,18 +103,17 @@ class Feed:
 
 class LocalReader:
     def __init__(self, app, *, port, plan_id, ttl=7200):
-        self.app, self.port = app, port
+        self.app, self.port, self.plan_id = app, port, plan_id
         self.cookie = secrets.token_urlsafe(32)
         self.tokens = {secrets.token_urlsafe(32) for _ in range(2)}
         self.until = time.monotonic() + ttl
         self.ttl = ttl
         self.init = (
-            "const launch=()=>{document.getElementById('plan').value=" + json.dumps(plan_id) + ";"
-            "document.getElementById('connect-form').requestSubmit();let n=0;"
-            "const timer=setInterval(()=>{const b=document.querySelector('[data-view=topology]');"
-            "if(b){b.click();clearInterval(timer);}else if(++n>100)clearInterval(timer);},100);};"
-            "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',launch,{once:true});"
-            "else setTimeout(launch,0);"
+            "let n=0;const timer=setInterval(()=>{"
+            "const form=document.getElementById('connect-form');"
+            "const b=document.querySelector('[data-view=topology]');"
+            "if(b&&typeof form?.onsubmit==='function'){b.click();clearInterval(timer);}"
+            "else if(++n>100)clearInterval(timer);},100);"
         ).encode()
 
     def authenticated(self, request):
@@ -144,7 +143,7 @@ class LocalReader:
         token = path.removeprefix("/__open/")
         if scope["method"] == "GET" and path.startswith("/__open/") and token in self.tokens:
             self.tokens.remove(token)
-            response = RedirectResponse("/console/", status_code=303)
+            response = RedirectResponse("/console/?plan=" + self.plan_id, status_code=303)
             response.set_cookie(
                 "sova-onprem-trial-reader",
                 self.cookie,
