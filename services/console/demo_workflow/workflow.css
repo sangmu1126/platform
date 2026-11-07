@@ -1,0 +1,112 @@
+.demo-workflow {
+  border: 2px solid #7d9cf5;
+  margin-bottom: 24px;
+  background: linear-gradient(120deg, #fff, #f1f5ff);
+  padding: 24px !important;
+}
+.demo-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.demo-heading h2 {
+  margin: 0;
+}
+.demo-heading .eyebrow {
+  color: #496494;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+.demo-badge {
+  background: #e2eaff;
+  color: #214ca9;
+  border: 1px solid #a8bdf4;
+  border-radius: 20px;
+  padding: 8px 16px;
+  white-space: nowrap;
+}
+#demo-stages {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  gap: 8px;
+  padding: 0;
+  counter-reset: demo-step;
+}
+#demo-stages li {
+  counter-increment: demo-step;
+  border: 1px solid #cdd7ea;
+  border-radius: 8px;
+  padding: 12px 8px;
+  background: #fff;
+  color: #667792;
+  font-size: 14px;
+}
+#demo-stages li:before {
+  content: counter(demo-step) ". ";
+  font-weight: 700;
+}
+#demo-stages .visited {
+  border-color: #a9d3bb;
+  background: #eff9f3;
+  color: #236b41;
+}
+#demo-stages .current {
+  border: 2px solid #3864e8;
+  background: #e8efff;
+  color: #2048af;
+  font-weight: 700;
+}
+.demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.demo-actions button {
+  padding: 12px 20px;
+}
+.demo-actions span {
+  color: #566985;
+  font-size: 14px;
+}
+.demo-details {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 24px;
+  margin-top: 18px;
+}
+.demo-details h3 {
+  font-size: 15px;
+}
+.demo-details li {
+  margin: 6px 0;
+  font-size: 13px;
+}
+#demo-events {
+  max-height: 220px;
+  overflow: auto;
+}
+.demo-footnote {
+  font-size: 12px;
+  color: #657693;
+}
+#demo-error,
+.demo-failed {
+  color: #a62e25;
+}
+#demo-error:empty {
+  display: none;
+}
+@media (max-width: 800px) {
+  #demo-stages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .demo-details {
+    grid-template-columns: 1fr;
+  }
+  .demo-workflow {
+    padding: 16px !important;
+  }
+}

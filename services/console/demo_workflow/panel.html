@@ -1,0 +1,43 @@
+<section
+  id="demo-workflow"
+  class="card demo-workflow"
+  aria-labelledby="demo-title"
+>
+  <div class="demo-heading">
+    <div>
+      <p class="eyebrow">ISOLATED WORKFLOW DEMO</p>
+      <h2 id="demo-title">워크플로우 데모</h2>
+    </div>
+    <strong class="demo-badge">합성 실행</strong>
+  </div>
+  <p>
+    AI·리허설·보안 시험·전환·관측의 결과는 합성 입력입니다. 상태 전환·승인·이력
+    저장은 기존 플랫폼 코드를 사용합니다. 실제 AWS·온프렘 이전의 완료 근거가
+    아닙니다.
+  </p>
+  <ol id="demo-stages" aria-label="워크플로우 단계"></ol>
+  <p id="demo-description" role="status">데모 계획을 불러오는 중입니다.</p>
+  <div class="demo-actions">
+    <button id="demo-next" type="button" disabled>다음 단계</button
+    ><button id="demo-auto" type="button" class="secondary" disabled>
+      승인 전까지 진행</button
+    ><span id="demo-current"></span>
+  </div>
+  <p id="demo-error" role="alert"></p>
+  <div class="demo-details">
+    <div>
+      <h3>게이트 판정 · 합성 증거</h3>
+      <ul id="demo-gate">
+        <li>아직 평가하지 않았습니다.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>저장된 실행 이력</h3>
+      <ol id="demo-events"></ol>
+    </div>
+  </div>
+  <p class="demo-footnote">
+    운영 연결과 분리된 로컬 계획입니다. 이 화면의 일반 승인·실행 대신 위 데모
+    버튼을 사용하세요. 자동 진행은 사람 승인 앞에서 멈춥니다.
+  </p>
+</section>
