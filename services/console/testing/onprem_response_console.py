@@ -108,6 +108,8 @@ class LocalReader:
         self.tokens = {secrets.token_urlsafe(32) for _ in range(2)}
         self.until = time.monotonic() + ttl
         self.ttl = ttl
+        self.control = None
+        self.notice = None
         self.init = (
             b"let n=0;const timer=setInterval(()=>{"
             b"const form=document.getElementById('connect-form');"
@@ -161,6 +163,8 @@ class LocalReader:
         item = cookies.get("sova-onprem-trial-reader")
         if item is None or not secrets.compare_digest(item.value, self.cookie):
             return await deny()
+        if path.startswith("/__demo/") and self.control is not None:
+            return await self.control(scope, receive, send)
         if scope["method"] not in {"GET", "HEAD"}:
             return await deny()
         if path == "/__trial_init.js":
@@ -180,7 +184,10 @@ class LocalReader:
             elif message["type"] == "http.response.body":
                 if message.get("more_body"):
                     raise ValueError("bounded_console_html_required")
-                notice = '<aside role="note" class="notice">실제 온프렘 전용 시험 · 동일 클러스터의 새 namespace에서 HTTP 격리·대체·전환을 확인합니다. 일반 공격 탐지·운영 앱 이전·T10 제품 승인을 뜻하지 않습니다. 시험 종료·근거 만료 뒤에는 과거 기록으로 표시됩니다.</aside>'
+                notice = (
+                    self.notice
+                    or '<aside role="note" class="notice">실제 온프렘 전용 시험 · 동일 클러스터의 새 namespace에서 HTTP 격리·대체·전환을 확인합니다. 일반 공격 탐지·운영 앱 이전·T10 제품 승인을 뜻하지 않습니다. 시험 종료·근거 만료 뒤에는 과거 기록으로 표시됩니다.</aside>'
+                )
                 body = re.sub(
                     rb"(<main\b[^>]*>)",
                     lambda m: m.group(0) + notice.encode(),
