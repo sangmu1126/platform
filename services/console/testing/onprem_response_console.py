@@ -109,12 +109,12 @@ class LocalReader:
         self.until = time.monotonic() + ttl
         self.ttl = ttl
         self.init = (
-            "let n=0;const timer=setInterval(()=>{"
-            "const form=document.getElementById('connect-form');"
-            "const b=document.querySelector('[data-view=topology]');"
-            "if(b&&typeof form?.onsubmit==='function'){b.click();clearInterval(timer);}"
-            "else if(++n>100)clearInterval(timer);},100);"
-        ).encode()
+            b"let n=0;const timer=setInterval(()=>{"
+            b"const form=document.getElementById('connect-form');"
+            b"const b=document.querySelector('[data-view=topology]');"
+            b"if(b&&typeof form?.onsubmit==='function'){b.click();clearInterval(timer);}"
+            b"else if(++n>100)clearInterval(timer);},100);"
+        )
 
     def authenticated(self, request):
         value = request.cookies.get("sova-onprem-trial-reader", "")
