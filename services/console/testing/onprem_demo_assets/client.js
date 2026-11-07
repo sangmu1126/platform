@@ -29,7 +29,7 @@ panel.className = "onprem-demo";
 panel.setAttribute("aria-label", "실제 온프렘 보안 대응 시연");
 panel.innerHTML = `<div class="onprem-demo-head"><div><span class="onprem-demo-eyebrow">LIVE ON-PREM DEMO</span><h3>실제 워크로드 보안 대응</h3><p>전용 API에 설정 위반을 주입하고, 격리·대체 기동·경로 전환을 실제로 확인합니다.</p></div><span data-demo-phase role="status">연결 확인 중</span></div>
 <div class="onprem-demo-scope"><strong>변경 범위</strong><span>새 시험 namespace 3개 · 최대 4개 무상태 Pod · 기존 앱·DB 변경 없음</span><span data-demo-time></span></div>
-<label class="onprem-demo-consent"><input type="checkbox" data-demo-consent> 전용 시험의 자원 생성·설정 위반 주입·격리·대체 전환을 승인합니다. 제품 T10 승인과는 별도입니다.</label>
+<label class="onprem-demo-consent"><input type="checkbox" data-demo-consent> 전용 시험의 자원 생성·설정 위반 주입·격리·대체 전환을 승인합니다. 서비스 운영 승인과는 별도의 시험 승인입니다.</label>
 <div class="onprem-demo-actions"><button type="button" data-demo-action="prepare">1. 실제 시험 준비</button><button type="button" class="onprem-demo-critical" data-demo-action="respond">2. 설정 위반 주입·대응 실행</button><button type="button" data-demo-action="stop">3. 시험 종료·자원 정리</button></div>
 <ol class="onprem-demo-steps"></ol><p data-demo-feedback role="status" aria-live="polite"></p><p class="onprem-demo-note">실제 Pod·NetworkPolicy·HTTP 확인 결과가 지도에 반영됩니다. 일반 사이버공격 탐지, 운영 앱의 복구, AWS→온프렘 이전 완료를 뜻하지 않습니다. 실행 결과가 불명확하면 자동 재실행하지 않습니다.</p>`;
 const consent = panel.querySelector("[data-demo-consent]");
