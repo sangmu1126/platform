@@ -1,0 +1,150 @@
+.onprem-demo {
+  margin: 0 0 24px;
+  padding: 24px;
+  border: 1px solid #cbd9ff;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #fff, #f1f5ff);
+  color: #203455;
+}
+.onprem-demo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+.onprem-demo-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #4163a6;
+  font-weight: 700;
+}
+.onprem-demo h3 {
+  font-size: 21px;
+  margin: 7px 0 8px;
+}
+.onprem-demo p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+  color: #60718d;
+}
+.onprem-demo [data-demo-phase] {
+  font-size: 12px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  background: #e7edff;
+  color: #345de5;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.onprem-demo[data-phase="responding"] [data-demo-phase] {
+  background: #fff1e4;
+  color: #9e5700;
+}
+.onprem-demo[data-phase="complete"] [data-demo-phase] {
+  background: #e0f6ed;
+  color: #1d7858;
+}
+.onprem-demo[data-phase="attention"] [data-demo-phase] {
+  background: #ffedf1;
+  color: #b52b50;
+}
+.onprem-demo-scope {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e2e9fa;
+  margin-bottom: 14px;
+}
+.onprem-demo [data-demo-time] {
+  margin-left: auto;
+  color: #466696;
+  font-variant-numeric: tabular-nums;
+}
+.onprem-demo-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.onprem-demo-consent input {
+  margin-top: 4px;
+  width: 15px;
+  height: 15px;
+  accent-color: #3864f2;
+}
+.onprem-demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+.onprem-demo-actions button {
+  border: 1px solid #c5d4f6;
+  background: #fff;
+  color: #2e51ad;
+  border-radius: 9px;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.onprem-demo-actions button:first-child {
+  background: #3864f2;
+  border-color: #3864f2;
+  color: white;
+}
+.onprem-demo-actions .onprem-demo-critical {
+  border-color: #ed9fb4;
+  color: #a7254b;
+  background: #fff7fa;
+}
+.onprem-demo-actions button:disabled {
+  opacity: 0.43;
+  cursor: not-allowed;
+}
+.onprem-demo-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 9px;
+  padding: 0;
+  margin: 10px 0 16px;
+  list-style: none;
+}
+.onprem-demo-steps li {
+  font-size: 12px;
+  padding: 11px;
+  border-radius: 8px;
+  border: 1px solid #dde5f7;
+  color: #7a8aa5;
+  background: #fff;
+}
+.onprem-demo-steps li[data-done="true"] {
+  color: #25785e;
+  border-color: #b7e4d3;
+  background: #f0faf5;
+}
+.onprem-demo [data-demo-feedback] {
+  min-height: 20px;
+  color: #365993;
+  font-weight: 600;
+}
+.onprem-demo .onprem-demo-note {
+  font-size: 11px;
+  color: #7988a0;
+  margin-top: 8px;
+}
+@media (max-width: 850px) {
+  .onprem-demo-head {
+    flex-direction: column;
+  }
+  .onprem-demo-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .onprem-demo [data-demo-time] {
+    margin-left: 0;
+  }
+}
