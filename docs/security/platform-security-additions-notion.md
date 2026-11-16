@@ -1,297 +1,519 @@
-# 플랫폼 보안 거버넌스 추가 구현·참조 정리
+# Patching as a Service 플랫폼 적용 현황 — 구현 완료와 실환경 HOLD 구분
 
-> 목적: 기존 **Security Governance v1**과 **Patching as a Service** 문서의 내용을 반복하지 않고,
-> 이를 플랫폼에 연결하면서 추가로 구현하거나 참조한 내용을 정리한다.
+> 최종 갱신: 2026-11-08 KST
 >
-> 현재 상태: **코드·차트·운영 CLI 구현 및 로컬 검증 완료 / 실환경 배포·호출 증적 미완료**
+> 관련 기준 문서: **보안&거버넌스 설계 v1**, **Patching as a Service**
+>
+> 이 문서의 목적: 기존 설계를 반복하지 않고, 팀 저장소 전체에서 실제로 추가 설계·구현·병합한 내용과 현재 실환경 인수 상태를 구분해 기록한다.
 
-## 1. 한 줄 결론
+## 1. 핵심 결론
 
-보안 프로그램을 별도 승인 시스템으로 만들지 않고, 기존 T31 변경 승인과 T10 컷오버 권한의
-**추가 fail-closed 조건**으로 연결했다. 보안 서비스는 근거를 판정할 수 있지만 승인·SHIFT·컷오버·
-Kubernetes 실행 권한은 갖지 않는다.
+Patching as a Service는 단순한 취약점 스캐너나 자동 패치 봇이 아니다.
 
-## 2. 추가 구현 범위
+플랫폼이 취약점 정보를 받아 수정안을 만들고, 격리된 T15 환경에서 검증한 뒤, 기존 T31 변경 승인과 T10 컷오버 권한에 보안 근거를 추가하는 **증적 기반 변경 통제 경로**로 구현했다.
 
-| 영역 | 추가한 내용 | 결과 |
-|---|---|---|
-| 변경 승인 | T31 승인·application claim 직전에 `patch/preflight` 강제 | 미등록·FAIL·만료 시 변경 진행 보류 |
-| 컷오버 승인 | SHIFT 100% 이후 submit 직전에 `patch/postflight`와 `migration/preflight` 강제 | 둘 중 하나라도 유효하지 않으면 컷오버 보류 |
-| 등록 원장 | 기존 `plan_commands`에 보안 등록·철회를 append-only로 기록 | 별도 DB·락·승인 엔진 없음 |
-| 동시성 방어 | 원격 review 전후 authority·T19 session·등록 revision 재검증 | 검토 중 계획이나 근거가 바뀌면 거부 |
-| 워크로드 신원 | 고정 actor, 전용 projected token, audience와 만료 분리 | 일반 SA token과 다른 짧은 수명 신원 사용 |
-| 통신 경계 | 전용 CA, hostname 검증 TLS, ingress/egress NetworkPolicy | 잘못된 CA·origin·통신 경로는 fail closed |
-| 공급망 | 외부 `sova-security` 소스를 exact commit으로 고정 | branch/latest 및 작업 디렉터리 오염 배제 |
-| 운영 도구 | 등록·철회·실제 enforce probe와 데모 준비 CLI | 승인이나 Executor 호출 없이 사전 검증 가능 |
-| 배포 검증 | Helm 값·볼륨·토큰·이미지 import closure·NetworkPolicy 테스트 | 설정 누락을 이미지/차트 단계에서 차단 |
+다만 다음 세 상태를 반드시 구분해야 한다.
 
-## 3. 기존 플랫폼 권한 경로와의 연결
+| 구분 | 현재 상태 |
+|---|---|
+| 설계 및 코드 구현 | 완료 |
+| 관련 PR 병합 및 CI 검증 | 완료 |
+| 현재 플랫폼 클러스터 배포 | 일부 완료 |
+| Security Review 실서비스 배포 | 미완료 |
+| 실제 TokenReview·TLS·NetworkPolicy 검증 | 미완료 |
+| 실제 Plan의 `prepare-change`·`prepare-cutover` 증적 | 미완료 |
+| T24 감사 연결 및 운영 인수 | 미완료 |
 
-### 변경 경로
+따라서 현재 판정은 다음과 같다.
 
-1. 기존 T31 authority가 현재 계획과 승인 조건을 평가한다.
-2. 같은 plan transaction에서 현재 T19 session과 `patch/preflight` 등록을 읽는다.
-3. 보안 서비스에 `mode=enforce` 원격 review를 요청한다.
-4. review가 PASS이고 응답 유효기간이 남아 있는지 확인한다.
-5. 기존 authority, T19 session, 등록 revision과 fingerprint를 다시 읽는다.
-6. 모든 값이 그대로일 때만 기존 T31 결과를 반환한다.
+> **구현 및 병합 완료 / 실환경 운영 인수 HOLD**
 
-### 컷오버 경로
+코드가 병합됐다는 사실만으로 운영 PASS를 선언하지 않는다.
 
-동일한 절차로 기존 T10 cutover authority 바깥을 감싸되, 다음 두 근거를 모두 요구한다.
+---
 
-- `patch/postflight`: 실제 apply 결과와 post-apply session에 결속
-- `migration/preflight`: 현재 이전 계획·환경·프로필에 결속
+## 2. 기존 문서와 이 문서의 차이
 
-보안 review의 `execution_authorized`는 항상 `false`다. 최종 승인은 기존 사람 승인자,
-실행은 기존 Executor만 수행한다.
+### 보안&거버넌스 설계 v1
 
-## 4. 등록 원장과 권한 분리
+플랫폼 전체의 권한 분리, 신원, 감사, 네트워크 및 승인 원칙을 정의한 상위 설계 문서다.
 
-보안 프로그램 등록은 `plan_commands`에 다음 논리 키로 누적한다.
+### Patching as a Service
+
+취약점 탐지부터 수정안 생성, 격리 검증, 승인, 배포, 사후 검증까지의 제품·운영 흐름을 정의한 서비스 설계 문서다.
+
+### 이 문서
+
+두 설계를 플랫폼 코드와 운영 경로에 실제로 어떻게 연결했는지, 어떤 PR이 병합됐는지, 현재 클러스터에 무엇이 없어서 인수가 보류되는지를 기록한다.
+
+즉 내용이 일부 연결되지만 같은 문서는 아니다.
+
+---
+
+## 3. 최종 설계
+
+전체 흐름은 다음과 같다.
+
+```text
+취약점·정책 입력
+      |
+      v
+AI 수정안 생성
+      |
+      v
+T15 격리 리허설·검증
+      |
+      v
+patch/preflight Security Review
+      |
+      v
+기존 T31 사람 승인
+      |
+      v
+기존 Executor 적용
+      |
+      v
+Post-Apply T19 평가
+      |
+      +--> patch/postflight
+      +--> migration/preflight
+                  |
+                  v
+           기존 T10 컷오버 승인
+                  |
+                  v
+              T24 감사
+```
+
+핵심은 새로운 보안 승인 시스템을 만들지 않았다는 점이다.
+
+- Security Review는 정책과 근거의 적합성을 판정한다.
+- T31은 변경의 최종 승인 권한을 유지한다.
+- T10은 컷오버의 최종 승인 권한을 유지한다.
+- Executor만 실제 명령을 실행한다.
+- T36은 오류율·p95에 따른 SHIFT/WATCH 판정을 유지한다.
+- T24는 등록, 검토, 사람 승인, 실행 Receipt의 연결을 감사한다.
+
+Security Review 응답의 `execution_authorized`는 항상 `false`다.
+
+---
+
+## 4. 구현한 플랫폼 권한 연결
+
+### 4.1 T31 변경 승인
+
+T31 승인 및 Application Claim 직전에 `patch/preflight`를 강제한다.
+
+1. 기존 T31 Authority가 현재 Plan과 승인 조건을 평가한다.
+2. 같은 Plan Transaction에서 T19 Session과 보안 프로그램 등록을 읽는다.
+3. Security Review에 `mode=enforce` 요청을 보낸다.
+4. PASS, 유효기간, 결속 정보를 확인한다.
+5. 원격 호출 뒤 Authority, Session, Registration Revision, Fingerprint를 다시 읽는다.
+6. 검토 중 값이 바뀌지 않았을 때만 기존 T31 결과를 반환한다.
+
+등록 누락, 철회, 만료, 통신 장애 또는 상태 변경은 모두 HOLD다.
+
+### 4.2 T10 컷오버 승인
+
+SHIFT 100% 이후 T10 컷오버 승인 직전에 다음 근거를 모두 요구한다.
+
+| 근거 | 결속 대상 |
+|---|---|
+| `patch/postflight` | 실제 Apply 결과와 Post-Apply T19 Session |
+| `migration/preflight` | 현재 Plan, 환경, 프로필, Application |
+
+둘 중 하나라도 없거나 오래됐거나 현재 상태와 다르면 컷오버를 보류한다.
+
+### 4.3 T36과의 경계
+
+Security Review는 오류율과 p95를 다시 계산하지 않는다. SHIFT/WATCH 판정도 대신하지 않는다.
+
+보안 근거가 PASS여도 T36 관측 계약을 통과하지 못하면 진행할 수 없다. 반대로 T36이 정상이어도 필수 보안 근거가 없으면 T31/T10에서 진행할 수 없다.
+
+---
+
+## 5. 등록 원장과 동시성 방어
+
+별도 승인 DB를 만들지 않고 기존 `plan_commands`에 보안 프로그램 등록과 철회를 append-only로 기록한다.
 
 ```text
 security-program-<kind>-<phase>-<13자리 revision>
 ```
 
-추가한 권한은 다음 두 개다.
+### 추가 권한
 
-- `security:read`: 현재 등록과 철회 상태를 읽고 review에 사용
-- `security:register`: 새 등록 또는 철회를 append-only로 기록
+| 권한 | 역할 |
+|---|---|
+| `security:read` | 현재 등록·철회 상태 조회 및 검토 |
+| `security:register` | 등록·철회를 append-only로 기록 |
 
-일반 `read`, 변경 승인, 컷오버 승인 권한만으로는 보안 프로그램을 등록할 수 없다.
-같은 command key를 다른 입력으로 재사용하거나 예상 revision이 다르면 거부한다.
+일반 `read`, T31 승인 또는 T10 컷오버 권한만으로 보안 근거를 등록할 수 없다.
 
-등록 문서는 다음 값과 정확히 결속된다.
+등록은 다음 값에 결속된다.
 
-- tenant와 application
-- plan ID와 plan digest
-- source/target environment
-- T19 profile ID와 version
-- T19 session fingerprint와 gate phase
-- 실제 application ID
-- 플랫폼 이미지 source SHA
+- Tenant와 Application
+- Plan ID와 Plan Digest
+- Source 및 Target Environment
+- T19 Profile ID와 Version
+- T19 Session Fingerprint와 Gate Phase
+- 실제 Application ID
+- 플랫폼 이미지 Source SHA
 
-## 5. 원격 review의 fail-closed 조건
+원격 Review 전후로 이 값들을 다시 확인해 TOCTOU와 오래된 PASS 재사용을 차단한다.
 
-다음 상황에서는 과거 PASS나 기본값으로 진행하지 않고 승인 경로를 보류한다.
+---
+
+## 6. Fail-Closed 계약
+
+다음 조건에서는 기본값이나 과거 PASS로 진행하지 않는다.
+
+### 등록·결속 실패
 
 - 등록 누락 또는 철회
-- stale revision, fingerprint 변경, command key 충돌
-- plan·tenant·application·환경·profile·session 불일치
-- 플랫폼 이미지 source SHA 불일치
-- review 결과 FAIL 또는 필수 control 누락
-- review 응답 만료 또는 review 도중 session/registration 변경
-- security-review 서비스 장애
-- CA·TLS·hostname 검증 실패
-- projected token 누락·만료·audience 불일치
-- NetworkPolicy로 허용되지 않은 통신
+- Stale Revision
+- Command Key 충돌
+- Plan·Tenant·Application 불일치
+- Source·Target Environment 불일치
+- Profile·Session·Fingerprint 불일치
+- 플랫폼 이미지 Source SHA 불일치
 
-원격 PASS는 캐시해 실행 권한으로 재사용하지 않는다. 실제 승인 시점마다 현재 등록으로 다시 평가한다.
+### 검토 실패
 
-## 6. Kubernetes·워크로드 보안 추가 사항
+- Review 결과 FAIL
+- 필수 Security Control 누락
+- 응답 유효기간 만료
+- Review 도중 Authority·Session·Registration 변경
+- 확인된 침해 상태가 종료되지 않음
 
-### 신원과 Secret
+### 인증·통신 실패
 
-- 기본 ServiceAccount token 자동 마운트는 사용하지 않는다.
-- security-review 전용 projected token만 `/var/run/secrets/security-review/token`에 마운트한다.
-- token audience는 `registered-security-review-audience`, 만료는 600초다.
-- T10 intake token과 security-review token은 경로와 audience가 달라 서로 대체할 수 없다.
-- TLS root는 `security-review-ca` Secret의 `ca.crt`만 읽는다.
-- `insecure-skip-tls-verify` 또는 hostname 검사 해제 경로는 두지 않았다.
+- Security Review 서비스 장애
+- CA·TLS·Hostname 검증 실패
+- Projected Token 누락 또는 만료
+- Token Audience 불일치
+- NetworkPolicy에 허용되지 않은 통신
+- 제한 시간 내 결과를 확정하지 못한 UNKNOWN
 
-### 네트워크
+실패 시 안전한 동작은 우회가 아니라 HOLD다.
 
-- `t15-rehearsal-host`에서 `security-review:8443`으로 나가는 egress만 추가했다.
-- `security-review` ingress는 `t15-rehearsal-host` Pod에서 오는 8443 요청만 허용한다.
-- 보안 서비스에는 Executor command credential을 주지 않는다.
-- 기존 default-deny와 DNS·DB·Executor·Tailscale 경계는 유지한다.
+---
 
-## 7. 공급망·이미지 무결성 추가 사항
+## 7. Workload Identity와 네트워크 보안
 
-- `sova-security==0.11.1`을 사용한다.
-- 소스는 `security` 저장소 commit
-  `cf33e09c8d3be567542a17fe039f3e6e2295568d`로 고정했다. 이 revision에는 PHP2Shell
-  사례의 `preserve-rebuild-rotate` 침해 복구 회귀 계약이 포함된다.
-- 빌드 시 exact commit을 shallow fetch하고 `FETCH_HEAD`가 기대 SHA와 같은지 확인한다.
-- 이미지에는 `src/sova_security` 아래 일반 Git blob만 복사한다.
-- Git 메타데이터, symlink, uncommitted 파일, branch 최신 상태는 이미지에 포함하지 않는다.
-- build receipt에 `security_revision`을 기록한다.
-- approval 이미지 import-closure 검사에 `operator_ports`, `security_relay`,
-  `SecurityReviewAuthority`를 포함해 런타임 import 누락을 빌드 시점에 차단한다.
+Security Review 호출에는 기본 ServiceAccount Token을 자동 마운트하지 않는다.
 
-## 8. 운영·데모 준비 CLI
+| 항목 | 설계 값 |
+|---|---|
+| Token 경로 | `/var/run/secrets/security-review/token` |
+| Audience | `registered-security-review-audience` |
+| 만료 | 600초 |
+| CA | `security-review-ca` Secret의 `ca.crt` |
+| TLS Hostname 검증 | 필수 |
+| Insecure TLS 우회 | 금지 |
 
-추가된 명령은 `operations/security-program/run.py`에서 제공한다.
+T10 Intake Token과 Security Review Token은 경로와 Audience를 분리한다.
 
-```bash
-# 변경 승인 전에 patch preflight 등록 + 실제 enforce probe
-python operations/security-program/run.py prepare-change \
-  --context platform --plan-id PLAN \
-  --patch-preflight patch-preflight.json
+네트워크는 `t15-rehearsal-host`에서 `security-review:8443`으로 가는 호출만 추가 허용하고, Security Review Ingress는 지정 호출자만 받도록 설계했다. 기존 Default-Deny와 DNS·DB·Executor·Tailscale 경계는 유지한다.
 
-# 실제 apply와 post-apply T19 평가 뒤 컷오버 근거 등록 + 실제 enforce probe
-python operations/security-program/run.py prepare-cutover \
-  --context platform --plan-id PLAN \
-  --patch-postflight patch-postflight.json \
-  --migration-preflight migration-preflight.json
+Security Review Pod에는 Executor 자격증명을 제공하지 않는다.
+
+---
+
+## 8. AI 수정안과 4분 30초 데모 계약
+
+AI 수정안 생성 경로는 데모 실행기에 연결했다.
+
+```text
+AI proposal start/collect
+  -> T15 검증
+  -> patch/preflight 등록·Enforce Probe
+  -> 기존 사람 승인
 ```
 
-두 명령은 다음 순서로 동작한다.
+### 시간 계약
 
-1. `security-review`와 `t15-rehearsal-host` Deployment rollout 준비를 기다린다.
-2. 현재 plan revision에 맞춰 등록한다.
-3. 실제 TLS·projected token으로 enforce probe를 호출한다.
-4. 모두 통과하면 `status: PASS`, 등록 revision, stage별 review 유효기간을 출력한다.
+- 전체 가시 데모의 하드 상한은 **270초**다.
+- 보안 준비 단계의 하위 예산은 **45초**다.
+- 최초 실행 시 시작 시각과 270초 예산을 JSONL 증적에 고정한다.
+- 사람 승인 후 재개해도 최초 시작 시각을 유지한다.
+- 각 명령과 조회는 전체 잔여 시간보다 오래 실행할 수 없다.
+- 제한 시간을 끄는 옵션은 없다.
+- TIMEOUT 또는 UNKNOWN 뒤 같은 효과를 자동 재시도하지 않는다.
+- 시간 부족을 이유로 T15, Security Review 또는 사람 승인을 생략하지 않는다.
 
-이 준비 명령은 사람 승인, application claim, SHIFT, 컷오버 submit, Executor 호출을 만들지 않는다.
-따라서 데모 본 흐름에는 새 수동 승인 단계를 넣지 않고, 시작 전 준비와 기존 승인 순간의 짧은 review만 추가한다.
+### 워밍
 
-### 데모 지연과 워밍 인수 기준
+데모 전에 다음 명령으로 필요한 Deployment와 연결을 준비한다.
 
-- PHP2Shell fixture·회귀 시험·문서 추가는 런타임 경로가 아니므로 지연을 추가하지 않는다.
-- 변경 승인에는 patch preflight HTTPS review 1회, 컷오버에는 patch postflight와 migration preflight
-  review 2회만 추가된다.
-- review는 호출당 전체 2초 deadline이며 retry하지 않는다. 준비된 클러스터에서는 짧게 끝나고,
-  장애 시 변경은 약 2초, 컷오버는 약 4초 이내 HOLD가 상한이다.
-- `warm`은 `security-review`, `t15-rehearsal-host` 각각 최대 120초 rollout을 기다린다. 이 대기는
-  본 시연 중 수행하지 않고 데모 시작 10분 전 준비 단계에서 끝낸다.
-- 시작 전 `prepare-change`가 `PASS`가 아니면 데모를 시작하지 않는다.
-- `prepare-cutover`는 미리 실행하지 않고 실제 apply와 post-apply T19 session 생성 직후 실행한다.
-- 워밍·probe 실패 시 보안 조건을 비활성화하지 않는다. DNS, TLS, projected token, registration을
-  복구하고 다시 인수한다.
+```bash
+python3 operations/security-program/run.py warm \
+  --context <platform> \
+  --budget-seconds 45
+```
 
-## 9. 추가 참조한 정부 자료
+워밍은 승인이나 실행을 대신하지 않는다. 데모 본 흐름의 cold start를 줄이고, 필수 서비스가 준비되지 않았으면 시작 전에 fail closed로 발견하기 위한 절차다.
 
-### 과학기술정보통신부·KISA — 에이전틱 AI 제로트러스트 안내서
+### 270초 안에 끝나지 않을 때
 
-- 공식 게시: https://www.kisa.or.kr/2060204/form?page=1&postSeq=25
-- 발간일: 2026-11-06
-- 적용한 관점: 입력, 도구 호출, 작업 위임, 외부 통신의 지속 검증, 비인간 신원,
-  최소 권한, 위험 작업의 인간 승인
-- 플랫폼 반영: 고정 workload identity, 요청별 fresh review, 권한 분리, review와 실행 권한 분리
+데모 성공으로 위장하지 않는다. `demo_budget_exceeded` 또는 해당 실패 상태를 증적에 남기고, 사전에 준비한 실패 화면과 설명으로 전환한다.
 
-### 행정안전부 — 공공부문 인공지능 윤리기준
+---
 
-- 공식 게시: https://mois.go.kr/frt/bbs/type001/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000015&nttId=129928
-- 게시일: 2026-10-01
-- 적용한 관점: 안전성, 책임성, 투명성, 프라이버시 보호를 플랫폼 책임 경계에 표시
-- 제한: 현재 경로는 생성형 AI 출력이 승인 결정을 내리는 구조가 아니므로 형평성·설명 가능성
-  평가는 비대상이다. 개인정보가 review 문서에 들어오는 경우에는 별도 개인정보 영향평가가 필요하다.
+## 9. 공급망과 이미지 무결성
 
-### 행정안전부 — 공공부문 AI 도입·활용 가이드
+외부 보안 패키지를 Branch 최신 상태로 가져오지 않고 Exact Commit으로 고정한다.
 
-- 공식 게시: https://www.mois.go.kr/frt/bbs/type010/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000008&nttId=126757
-- 게시일: 2026-06-10
-- 적용한 관점: 기획·구축·운영 전체 수명주기에서 책임과 증적을 유지
-- 플랫폼 반영: preflight/postflight 분리, 등록·철회 원장, 배포 전 probe, 운영 인수 체크
+| 항목 | 값 |
+|---|---|
+| Package | `sova-security` |
+| 반영 Security SHA | `cf33e09c8d3be567542a17fe039f3e6e2295568d` |
+| 반영 내용 | PHP2Shell 방어 회귀 포함 |
 
-위 자료는 외부 통제 기준으로 참조하지만, 현재 구현만으로 법적 적합성·정부 인증·지침 전체 준수를
-주장하지 않는다. KISA 원문은 저장소에 복제하거나 수정 배포하지 않고 공식 게시물에 링크한다.
+빌드 과정은 다음을 확인한다.
 
-## 10. T36·T19·T24와의 관계
+1. 지정 Commit만 Shallow Fetch한다.
+2. `FETCH_HEAD`와 기대 SHA가 일치해야 한다.
+3. 허용된 일반 Git Blob만 이미지에 포함한다.
+4. Git Metadata, Symlink, Uncommitted File을 제외한다.
+5. Build Receipt에 Security Revision을 기록한다.
+6. Approval Image의 Import Closure를 빌드 단계에서 검증한다.
 
-- **T36 오류율·p95 관측 계약:** 기존 SHIFT/WATCH 판정 권한을 유지한다. 보안 review가 오류율이나
-  p95를 새로 계산하거나 T36 판정을 대체하지 않는다.
-- **T19 gate session:** 보안 등록을 현재 plan/profile/environment/application과 결속하는 기준이다.
-  postflight는 실제 apply 이후 생성된 session이어야 한다.
-- **T24 감사:** 등록·철회, review fingerprint, 기존 승인과 실행 receipt가 하나의 계획 흐름으로
-  연결되는지 실환경 인수 때 확인해야 한다.
-- **T31/T10:** 보안 프로그램은 두 authority의 추가 조건일 뿐 새로운 최종 authority가 아니다.
+이를 통해 로컬 작업 디렉터리나 임의의 최신 Branch가 승인 경로에 섞이는 것을 막는다.
 
-## 11. 검증한 항목
+---
 
-### 단위·통합 테스트
+## 10. PHP2Shell AI 모의해킹 사례 반영
 
-- 변경 승인이 `patch/preflight` PASS를 요구하는지
-- 컷오버가 `patch/postflight`와 `migration/preflight`를 모두 요구하는지
-- 철회된 등록이 원격 호출 전에 거부되는지
-- 다른 플랫폼 source SHA에 묶인 등록이 거부되는지
-- 배포된 이미지 SHA와 설정 SHA가 다르면 기동 설정이 거부되는지
-- 데모 준비가 rollout 준비 → 등록 → 실제 probe 순서를 지키는지
-- rollout 실패 시 어떤 등록도 만들지 않는지
-- Helm이 별도 token audience와 CA Secret을 정확히 렌더링하는지
-- 외부 보안 package가 exact commit의 committed blob만 포함하는지
+MBC가 보도한 허가된 AI 모의해킹의 구버전 PHP 서버 장악 사례를 방어 요구사항으로 반영했다.
 
-최근 로컬 결과:
+참고 기사: <https://imnews.imbc.com/replay/2026/nwdesk/article/6863935_37004.html>
 
-- 관련 테스트 묶음: `104 passed, 24 deselected`
-- 보안 거버넌스·준비 CLI 집중 테스트: `8 passed`
-- Helm 관련 테스트: `4 passed`
-- 전체 테스트는 로컬 `pg_config` 부재로 의존성 설치 단계에서 중단됐으며, 변경 코드 실패는 아니다.
+기사가 정확한 공격 명령과 대상 Build/SAPI를 공개하지 않았으므로 기사 속 Exploit을 임의로 단정하지 않는다. 대신 공식 PHP RCE 취약점과 수정 경계를 방어 Fixture로 사용한다.
 
-## 12. 아직 실환경 인수가 아닌 이유
+### 추가한 방어 계약
 
-코드와 테스트가 통과해도 다음 실환경 증적이 아직 없으면 운영 PASS로 기록할 수 없다.
+- PHP-FPM, `mod_php`, `php-cgi`, FrankenPHP, LiteSpeed를 Inventory 범위에 포함
+- 공식 수정 버전 또는 검증된 Vendor Backport만 수정 근거로 인정
+- WAF나 설정 완화만으로 PASS를 부여하지 않음
+- `risk-assessment` FAIL이면 T31 정상 변경 결과를 차단
+- 확인된 침해는 `EMERGENCY / preserve-rebuild-rotate`로 분류
+- 버전 수정과 Finding 제거 뒤에도 침해 조사가 끝나지 않으면 HOLD 유지
+- 침해 확인 시 증거 보존, Clean Rebuild, 자격증명 회전을 요구
+- 공격 Payload, Webshell, 외부 무단 Scan 기능은 구현하지 않음
 
-- 실제 `security-review` Service와 TLS Secret 배포
-- 실제 Service endpoint와 Pod UID 확인
-- `t15-rehearsal-host` SA UID와 workload grant 확인
-- projected token의 실제 TokenReview와 audience 검증
-- NetworkPolicy 정상 경로와 차단 대조군 확인
-- 실제 plan으로 `prepare-change`와 `prepare-cutover` PASS 확인
-- 등록 누락·철회·잘못된 CA·서비스 중단 시 승인 HOLD와 Executor 0회 확인
-- T24 감사에서 등록 → review → 사람 승인 → 실행 receipt 연결 확인
+상세 문서: `docs/security/php2shell-ai-pentest-incident.md`
 
-즉, 현재는 **구현 완료**이지 **실환경 인수 완료**가 아니다.
+---
 
-## 13. 실환경 적용 순서
+## 11. 정부 AI 보안·거버넌스 자료 참조
 
-1. `security-review` Service, TLS Secret, workload grant를 `platform-state`에 배포한다.
-2. `security-review-ca` Secret과 보호된 `operator.json`을 만든다.
-3. caller egress와 service ingress NetworkPolicy를 적용한다.
-4. approval host 이미지를 발행하고 동일 source SHA로 pin PR을 병합한다.
-5. registrar에게 plan별 `read`, `security:read`, `security:register`를 부여한다.
-6. 승인자와 실행자에게 기존 권한과 함께 `security:read`를 부여한다.
-7. 실제 plan으로 변경 전 `prepare-change`를 실행한다.
-8. 실제 apply와 post-apply T19 평가 후 `prepare-cutover`를 실행한다.
-9. 정상·거부 대조군과 T24 감사 연결을 확인한 뒤 운영 인수로 기록한다.
+정부 자료는 외부 통제 기준과 설계 Cross-check 용도로만 참조한다.
 
-## 14. 주요 구현 파일
+### 과학기술정보통신부·KISA
+
+**에이전틱 AI 제로트러스트 안내서**
+
+- 지속적 검증
+- 비인간 신원 통제
+- 최소 권한
+- 외부 도구·통신 통제
+- 위험 작업의 사람 승인
+
+플랫폼에서는 Fresh Review, 전용 Workload Identity, 권한 분리, NetworkPolicy, 사람 승인 유지로 연결했다.
+
+### 행정안전부
+
+**공공부문 인공지능 윤리기준**, **공공부문 AI 도입·활용 가이드**
+
+- 안전성, 책임성, 투명성
+- 기획·구축·운영 수명주기 관리
+- 책임 주체 유지
+- 운영 증적 확보
+
+플랫폼에서는 Preflight/Postflight 분리, 등록·철회 원장, 배포 전 Probe, 운영 인수 체크와 감사 증적으로 연결했다.
+
+이 참조만으로 법적 적합성, 정부 인증 또는 지침 전체 준수를 주장하지 않는다. 개인정보·민감정보가 Review 입력에 포함되면 별도의 영향평가와 보유·파기 정책이 필요하다.
+
+---
+
+## 12. 병합 및 검증 현황
+
+### 병합 완료
+
+| 저장소·PR | 반영 내용 | 상태 |
+|---|---|---|
+| security PR #4 | PHP2Shell 방어 회귀 | 병합 |
+| platform PR #924 | 보안 거버넌스와 Patching as a Service 기반 연결 | 병합 |
+| platform PR #939 | AI 수정안 경로와 270초 데모 계약 | 병합 |
+| platform PR #912 | T33 Findings 네트워크 경로 | 병합 |
+
+주요 Platform Merge SHA:
+
+- PR #924: `2e2471e674a644642f8f52fb9cb02bbe2268d017`
+- PR #939: `1708b6254a818807f336e6d59bd96a9c894f1dd0`
+- PR #912: `2f144b45614ae8868b4ffca86aad0f75f4a5579a`
+
+### 검증 결과
+
+| 검증 | 결과 |
+|---|---|
+| PR #939 CI | 31 checks passed |
+| Happy Path 집중 테스트 | 21 passed |
+| 보안 준비 경로 집중 테스트 | 20 passed |
+| SQLite·TLS 포함 확장 테스트 | 176 passed |
+| PostgreSQL 의존 테스트 | 로컬 `pg_config` 부재로 147 deselected |
+
+`pg_config` 부재를 전체 테스트 PASS로 기록하지 않는다. 동시에 해당 로컬 의존성 중단을 변경 코드의 테스트 실패로도 오기하지 않는다.
+
+---
+
+## 13. 2026-11-08 실환경 관측 결과
+
+플랫폼 클러스터에서 직접 확인한 사실은 다음과 같다.
+
+### 접속과 클러스터 식별
+
+- `kube-system` UID: `5d978ed5-52a9-405a-a4ce-fd2e1c3ac9f9`
+- 확인 Identity: 운영자 개인 Google 계정(공개 문서에서는 주소를 가림)
+- 확인 Group: `bravo:operators` 포함
+
+### 현재 T15
+
+- `t15-rehearsal-host`: Ready `1/1`
+- 현재 이미지 Digest: `sha256:84d80ea356e9dae01f89ac78dcdcd521bf0e955234c928f2d4db4f769837ef3d`
+- 현재 Pin의 Source Revision: `db16f1403e125ae7831d07e63318f818790242bf`
+- 현재 Deployment에는 `security-review-ca` 및 `security-review-token` Volume/Mount가 없음
+
+즉 T15 자체는 살아 있지만 새 Security Review 연동 구성이 배포된 상태는 아니다.
+
+### 현재 없는 실환경 리소스
+
+- `Deployment/security-review`: 없음
+- `Service/security-review`: 없음
+- Security Review EndpointSlice: 없음
+- `Secret/security-review-ca`: 없음
+- Security Review 전용 NetworkPolicy: 없음
+
+따라서 현재 클러스터에서는 실제 TLS, Projected Token, TokenReview, Service Endpoint 및 NetworkPolicy 대조군을 검증할 수 없다.
+
+---
+
+## 14. Platform PR #948을 HOLD한 이유
+
+PR #939 병합 뒤 새 Rehearsal Host 이미지 Pin PR #948이 자동 생성됐다.
+
+그러나 새 이미지가 요구하는 Security Review 서비스, CA, Token Projection 및 Operator 설정이 아직 플랫폼에 없으므로 바로 병합하면 기존 T15 Rollout을 깨뜨릴 위험이 있다.
+
+따라서 PR #948은 Draft/HOLD로 두었다.
+
+이 HOLD는 구현 실패가 아니라 안전한 배포 순서를 지키기 위한 조치다.
+
+필수 선행 조건은 다음과 같다.
+
+1. Security Review 이미지를 발행하고 Digest를 고정한다.
+2. 전용 DB Reader와 Workload Grant를 준비한다.
+3. TLS 인증서와 `security-review-ca`를 배포한다.
+4. `Service/security-review`와 Endpoint를 준비한다.
+5. 호출자 Egress와 서비스 Ingress NetworkPolicy를 적용한다.
+6. 보호된 `operator.json`과 Projected Token 설정을 배포한다.
+7. 정상·차단 대조군을 확인한다.
+8. 그 다음 PR #948의 T15 이미지 Pin을 병합한다.
+
+---
+
+## 15. 아직 완료되지 않은 것
+
+### 실환경 배포
+
+- Security Review 이미지 발행
+- Security Review Deployment·Service·Endpoint 배포
+- TLS Secret과 CA 배포
+- 전용 DB Reader와 Workload Grant 구성
+- Security Review 전용 NetworkPolicy 적용
+- 새 T15 이미지 Pin PR #948 병합
+
+### 실환경 검증
+
+- Projected Token 실제 TokenReview
+- Audience와 만료 검증
+- 정상 TLS·Hostname 검증
+- 잘못된 CA 차단 대조군
+- 허용·차단 NetworkPolicy 대조군
+- 실제 Plan의 `prepare-change` PASS
+- 실제 Apply 후 `prepare-cutover` PASS
+- 등록 누락·철회·서비스 장애 시 HOLD
+- 실패 경로에서 Executor 호출 0회 확인
+
+### 운영 인수
+
+- 등록 → Review → 사람 승인 → 실행 Receipt 연결
+- T24 감사 증적 확인
+- 운영 주체와 장애 대응 책임 확정
+- Credential·인증서 Rotation 책임 확정
+- 270초 실데모 리허설 증적 확보
+
+---
+
+## 16. 실환경 완료 순서
+
+1. Security Review 컨테이너를 빌드·스캔·발행하고 Digest를 고정한다.
+2. 전용 DB Reader, Grant, TLS Secret, CA 및 보호 설정을 준비한다.
+3. Security Review Deployment와 Service를 배포한다.
+4. TokenReview와 Audience를 확인한다.
+5. NetworkPolicy 정상·차단 대조군을 실행한다.
+6. 새 T15 이미지 Pin PR #948을 검토·병합한다.
+7. `warm`으로 두 Deployment의 준비 상태를 확인한다.
+8. 실제 Plan으로 `prepare-change`를 실행한다.
+9. 실제 Apply 및 Post-Apply T19 평가 뒤 `prepare-cutover`를 실행한다.
+10. 실패 대조군에서 HOLD와 Executor 0회를 확인한다.
+11. T24 감사 연결과 270초 데모 리허설을 확인한다.
+12. 모든 증적이 있을 때만 운영 인수를 PASS로 전환한다.
+
+---
+
+## 17. 주요 구현 파일
 
 | 파일 | 역할 |
 |---|---|
-| `services/platform-events/src/bravo_platform_events/security_governance.py` | 등록 원장, 결속 검증, 원격 review authority |
-| `services/platform-events/src/bravo_platform_events/security_relay.py` | 보호된 등록·철회·probe relay |
-| `services/platform-events/src/bravo_platform_events/operator_ports.py` | 기존 T31/T10 authority에 보안 조건 연결 |
-| `services/platform-events/src/bravo_platform_events/operator_access.py` | `security:read`, `security:register` 권한 추가 |
-| `operations/security-program/run.py` | 운영 등록·철회·probe·데모 준비 CLI |
-| `infra/charts/rehearsal-host/templates/deployment.yaml` | CA와 projected token 마운트 |
-| `infra/envs/rehearsal-access/rehearsal-host-network.yaml` | security-review 통신 NetworkPolicy |
-| `services/platform-events/deploy/product-read/build.py` | security package exact commit pin과 이미지 포함 |
-| `services/platform-events/tests/test_security_governance.py` | 권한·등록·fail-closed 통합 테스트 |
-| `services/platform-events/tests/test_security_program_run.py` | 데모 준비 순서·실패 테스트 |
+| `services/platform-events/src/bravo_platform_events/security_governance.py` | 등록 원장, 결속 검증, 원격 Review Authority |
+| `services/platform-events/src/bravo_platform_events/security_relay.py` | 등록·철회·Probe Relay |
+| `services/platform-events/src/bravo_platform_events/operator_ports.py` | T31/T10 Authority 연결 |
+| `services/platform-events/src/bravo_platform_events/operator_access.py` | 보안 권한 분리 |
+| `operations/security-program/run.py` | 워밍, 등록, 철회, Enforce Probe, 준비 CLI |
+| `scripts/happy_path.py` | AI 제안부터 승인까지의 270초 데모 실행기 |
+| `infra/charts/rehearsal-host/templates/deployment.yaml` | CA 및 Projected Token 마운트 |
+| `infra/envs/rehearsal-access/rehearsal-host-network.yaml` | 호출자·서비스 네트워크 경계 |
+| `services/platform-events/deploy/product-read/build.py` | Exact Commit Pin과 이미지 포함 검증 |
+| `services/platform-events/tests/test_security_governance.py` | 등록·권한·Fail-Closed 테스트 |
+| `services/platform-events/tests/test_security_program_run.py` | 준비 순서·제한 시간·실패 테스트 |
+| `docs/security/php2shell-ai-pentest-incident.md` | PHP2Shell 사고 대응 계약 |
+| `docs/operations/t28-demo-runbook.md` | 270초 데모 운영 절차 |
 
-## 15. 남은 별도 과제
+---
 
-- review 입력에 개인정보·민감정보가 들어올 가능성이 있으면 분류·보유·파기 정책과 개인정보 영향평가 추가
-- 정부 안내서의 세부 점검 항목 번호별 정식 crosswalk 작성
-- 실환경 근거 생산자와 security-review 서비스의 운영 주체·장애 대응·rotation 책임 확정
-- 정부 문서 개정 시 적용 버전과 잔여 위험을 PR 및 운영 인수 기록에 갱신
+## 18. 최종 판정
 
-## 16. PHP2Shell AI 모의해킹 기사 반영
+### 완료된 것
 
-### 확인한 사건
+- Patching as a Service의 플랫폼 권한 경로 설계
+- T31/T10 추가 보안 조건과 Fail-Closed 구현
+- 등록·철회 원장과 동시성 방어
+- Workload Identity·TLS·NetworkPolicy 차트 구성
+- AI 수정안 → T15 → Security Review → 사람 승인 경로
+- 270초 전체 데모 및 45초 보안 하위 예산
+- 외부 보안 패키지 Exact Commit Pin
+- PHP2Shell 방어 회귀
+- 관련 PR 병합과 CI 검증
 
-- MBC는 2026-11-07 허가된 AI 모의해킹에서 구버전 PHP 서버가 17분 42초 만에 장악됐다고 보도했다.
-- 기사: https://imnews.imbc.com/replay/2026/nwdesk/article/6863935_37004.html
-- 공격 명령과 정확한 대상 build/SAPI가 공개되지 않아 기사 대상의 정확한 exploit은 단정하지 않는다.
-- 방어 기준은 PHP 공식 RCE인 `CVE-2026-109618`, `CVE-2026-109619`로 고정했다.
+### 완료되지 않은 것
 
-### 추가 구현
+- Security Review 실서비스 배포
+- 새 T15 이미지의 안전한 배포
+- 실제 TokenReview·TLS·NetworkPolicy 증적
+- 실제 Plan의 Preflight·Postflight 증적
+- T24 감사 연결
+- 270초 실환경 리허설과 운영 인수
 
-- 공식 CVE와 PHP 8.4.26→8.4.27 수정 경계를 담은 비공격성 scanner fixture 추가
-- 두 CVE가 확인된 침해를 `EMERGENCY / preserve-rebuild-rotate`로 판정하는 시험 추가
-- PHP 버전을 수정하고 finding이 없어져도 compromise state가 확인 상태면 HOLD하는 시험 추가
-- PHP2Shell `risk-assessment` FAIL이면 플랫폼의 normal T31 변경 authority가 결과를 반환하지 않는 시험 추가
-- 공격 payload, 웹셸, 외부 스캔 기능은 구현하거나 저장하지 않음
+> **최종 상태: 설계·구현·병합 완료 / 실환경 운영 인수 HOLD**
 
-### 운영 원칙
-
-1. PHP-FPM, `mod_php`, `php-cgi`, FrankenPHP, LiteSpeed를 모두 inventory 대상으로 본다.
-2. PHP 8.2.35, 8.3.36, 8.4.27, 8.5.12 이상 또는 인증된 vendor backport만 수정 근거로 인정한다.
-3. 설정 완화나 WAF만으로 PASS를 만들지 않는다.
-4. 침해가 확인됐으면 in-place update가 아니라 증거 보존, clean rebuild, 자격증명 회전이 필요하다.
-5. 새 image의 전체 scan과 patch postflight가 통과해도 compromise 조사가 닫히지 않으면 컷오버하지 않는다.
-
-상세 계약과 실환경 증적 목록은 `docs/security/php2shell-ai-pentest-incident.md`에 정리했다.
+남은 작업의 목표는 기능을 더 추가하는 것이 아니라, 이미 구현한 권한·신원·통신·감사 계약을 실제 플랫폼 리소스와 증적으로 닫는 것이다.
